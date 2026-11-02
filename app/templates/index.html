@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard GIS Campak – Kabupaten Sumenep</title>
+  <meta name="description" content="Dashboard lokal Flask untuk analisis spasial, LISA, Moran's I, Random Forest Regression, dan upload dataset Excel kasus campak Kabupaten Sumenep.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <h1><i class="fa-solid fa-virus text-cyan-300"></i> GIS Campak</h1>
+      <p>Deteksi Penyebaran Campak<br>Kabupaten Sumenep · 2022–2025</p>
+    </div>
+
+    <div class="nav-title">Menu Utama</div>
+    <button class="nav-item active" data-page="overview"><i class="fa-solid fa-chart-line"></i> Overview</button>
+    <button class="nav-item" data-page="webgis"><i class="fa-solid fa-map-location-dot"></i> Web GIS</button>
+    <button class="nav-item" data-page="spatial"><i class="fa-solid fa-diagram-project"></i> Analisis Spasial</button>
+    <button class="nav-item" data-page="timeseries"><i class="fa-solid fa-wave-square"></i> Time Series</button>
+
+    <div class="nav-title">Model Prediksi</div>
+    <button class="nav-item" data-page="rf"><i class="fa-solid fa-tree"></i> Random Forest</button>
+    <button class="nav-item" data-page="laporan"><i class="fa-solid fa-file-lines"></i> Laporan</button>
+    <button class="nav-item" data-page="integrasi"><i class="fa-solid fa-layer-group"></i> Hasil Integrasi</button>
+
+    <div class="nav-title" style="display: none;">Data</div>
+    <button class="nav-item" data-page="upload" style="display: none;"><i class="fa-solid fa-file-arrow-up"></i> Upload Dataset</button>
+
+    <div class="sidebar-foot">
+      Anandito Wisnu Widya Pratama<br>
+      NIM 22051214147 · UNESA 2026
+    </div>
+  </aside>
+
+  <main class="main">
+    <section id="page-overview" class="page active">
+      <div class="page-head">
+        <div>
+          <h2>Dashboard Spasial-Temporal Campak</h2>
+          <p>Integrasi Moran's I · LISA · Lag Feature · Random Forest Regression</p>
+        </div>
+        <div class="filter-row"><label>Tahun:</label><select id="overviewYear" class="input-mini"></select></div>
+      </div>
+
+      <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="kpi-card cyan"><span>Total Kasus</span><strong id="ovTotal">-</strong><small id="ovTotalSub">-</small><i class="fa-solid fa-users"></i></div>
+        <div class="kpi-card purple"><span>Moran's I Global</span><strong id="ovMoran">-</strong><small id="ovMoranSub">-</small><i class="fa-solid fa-vector-square"></i></div>
+        <div class="kpi-card red"><span>Hotspot LISA (HH)</span><strong id="ovHH">-</strong><small id="ovHHSub">-</small><i class="fa-solid fa-fire"></i></div>
+      </div>
+
+      <div class="grid-2 mb-4">
+        <div class="panel"><h3><i class="fa-solid fa-chart-line"></i> Tren Kasus Bulanan</h3><div class="chart-box"><canvas id="ovTrendChart"></canvas></div></div>
+        <div class="panel"><h3><i class="fa-solid fa-trophy"></i> Top 5 Kecamatan</h3><div class="chart-box"><canvas id="ovTopChart"></canvas></div></div>
+      </div>
+      <div class="panel"><h3><i class="fa-solid fa-chart-column"></i> Perbandingan Kasus 2022 – 2025</h3><div class="chart-box wide"><canvas id="ovCompareChart"></canvas></div></div>
+    </section>
+
+    <section id="page-webgis" class="page">
+      <div class="page-head">
+        <div><h2>Web GIS Interaktif</h2><p>Peta sebaran kasus campak per kecamatan dengan klaster LISA</p></div>
+        <div class="filter-row"><select id="mapYear" class="input-mini"></select><select id="mapMode" class="input-mini"><option value="cases">Tampilan: Jumlah Kasus</option><option value="lisa">Tampilan: Klaster LISA</option></select></div>
+      </div>
+      <div class="info"><i class="fa-solid fa-circle-info"></i> Klik marker untuk detail kecamatan. Ukuran lingkaran proporsional dengan jumlah kasus. Mode LISA menampilkan kategori HH, LH, HL, dan LL.</div>
+      <div class="panel mb-4"><h3><i class="fa-solid fa-map"></i> Peta Kabupaten Sumenep</h3><div id="map"></div><div id="mapLegend" class="legend"></div></div>
+      <div class="panel"><h3><i class="fa-solid fa-table"></i> Tabel Data Kecamatan</h3><div class="table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Kecamatan</th><th>Kasus</th><th>Spatial Lag</th><th>LISA</th><th>Tren</th></tr></thead><tbody id="kecTable"></tbody></table></div></div>
+    </section>
+
+    <section id="page-spatial" class="page">
+      <div class="page-head"><div><h2>Analisis Spasial</h2><p>Autokorelasi Global (Moran's I) dan Lokal (LISA)</p></div><div class="filter-row"><select id="spatialYear" class="input-mini"></select></div></div>
+      <div class="grid-spatial mb-4">
+        <div>
+          <div class="moran-card mb-4"><span>Indeks Moran's I Global</span><strong id="spMoran">-</strong><small id="spMoranSub">-</small><p id="spInterpretasi">-</p><em id="spBadge">Autokorelasi Spasial</em></div>
+          <div class="panel"><h3><i class="fa-solid fa-chart-pie"></i> Distribusi Klaster LISA</h3><small>Klasifikasi kecamatan berdasarkan analisis LISA</small><div class="chart-box small"><canvas id="lisaBarChart"></canvas></div></div>
+        </div>
+        <div class="panel"><h3><i class="fa-solid fa-braille"></i> Moran's I Scatterplot</h3><small>Standardized kasus (z-score) vs Spatial Lag</small><div class="chart-box"><canvas id="moranScatterChart"></canvas></div></div>
+      </div>
+      <div class="panel"><h3><i class="fa-solid fa-layer-group"></i> Klasifikasi Kecamatan per Klaster LISA</h3><div class="table-wrap"><table class="data-table"><thead><tr><th>Kecamatan</th><th>Kasus</th><th>Spatial Lag</th><th>LISA</th><th>Interpretasi</th></tr></thead><tbody id="lisaTable"></tbody></table></div></div>
+    </section>
+
+    <section id="page-timeseries" class="page">
+      <div class="page-head"><div><h2>Analisis Time Series</h2><p>Tren temporal kasus campak Kabupaten Sumenep 2022–2025</p></div><div class="filter-row"><select id="tsKecamatan" class="input-mini"><option value="all">Semua Kecamatan</option></select></div></div>
+      <div class="panel mb-4"><h3><i class="fa-solid fa-chart-line"></i> Tren Kasus Bulanan Per Tahun</h3><div class="year-tabs"><button class="active" data-y="2022">2022</button><button class="active" data-y="2023">2023</button><button class="active" data-y="2024">2024</button><button class="active" data-y="2025">2025</button></div><div class="chart-box tall"><canvas id="tsMultiChart"></canvas></div></div>
+      <div class="grid-2-even"><div class="panel"><h3><i class="fa-solid fa-sun"></i> Pola Musiman Rata-rata</h3><small>Rata-rata kasus per bulan</small><div class="chart-box"><canvas id="seasonChart"></canvas></div></div><div class="panel"><h3><i class="fa-solid fa-arrows-up-down"></i> Perubahan YoY (%)</h3><small>Persentase perubahan kasus tahunan</small><div class="chart-box"><canvas id="yoyChart"></canvas></div></div></div>
+    </section>
+
+    <section id="page-rf" class="page">
+      <div class="page-head"><div><h2>Model Random Forest Regression</h2><p>Prediksi jumlah kasus campak berbasis lag feature temporal dan spasial</p></div></div>
+      <div class="grid-2 mb-4">
+        <div class="panel"><h3><i class="fa-solid fa-calculator"></i> Kalkulator Prediksi Kasus</h3><small>Masukkan nilai lag feature untuk mendapatkan prediksi kasus</small><div class="form-grid mt-4"><label>Lag-1: Kasus bulan lalu (t-1)<input id="lag1" type="number" value="40"></label><label>Lag-2: Kasus 2 bulan lalu (t-2)<input id="lag2" type="number" value="16"></label><label>Lag-3: Kasus 3 bulan lalu (t-3)<input id="lag3" type="number" value="3"></label><label>Lag-4: Kasus 4 bulan lalu (t-4)<input id="lag4" type="number" value="1"></label><label>Bulan target prediksi<select id="predMonth"><option value="1">Januari</option><option value="2">Februari</option><option value="3">Maret</option><option value="4">April</option><option value="5">Mei</option><option value="6">Juni</option><option value="7">Juli</option><option value="8">Agustus</option><option value="9">September</option><option value="10">Oktober</option><option value="11">November</option><option value="12">Desember</option></select></label><label>Tahun target prediksi<input id="predYear" type="number" value="2026"></label></div><button id="runPredict" class="primary-btn"><i class="fa-solid fa-play"></i> Jalankan Prediksi RF</button><div class="pred-box"><span>Hasil Prediksi</span><strong id="predResult">—</strong><small id="predNote">Isi form di atas dan klik Jalankan Prediksi</small></div></div>
+        <div><div class="panel mb-4"><h3><i class="fa-solid fa-arrow-down-wide-short"></i> Feature Importance</h3><small>Kontribusi masing-masing fitur terhadap model RF</small><div class="chart-wrap">
+    <canvas id="featureChart"></canvas>
+</div></div><div class="panel"><h3><i class="fa-solid fa-gear"></i> Parameter Terbaik (Hyperparameter Tuning)</h3><table class="param-table"><tr><td>Algoritma</td><td>Random Forest Regression</td></tr><tr><td>n_estimators</td><td>500</td></tr><tr><td>min_samples_split</td><td>5</td></tr><tr><td>min_samples_leaf</td><td>2</td></tr><tr><td>max_features</td><td>1.0</td></tr><tr><td>max_depth</td><td>5</td></tr><tr><td>bootstrap</td><td>True</td></tr><tr><td>Fitur input</td><td>Lag_1, Lag_2, Lag_3, Lag_4, Bulan, Tahun</td></tr><tr><td>Data</td><td>Dataset Excel hasil upload</td></tr><tr><td>Output</td><td>Prediksi kasus &amp; kategori risiko</td></tr></table></div></div>
+      </div>
+    </section>
+
+
+
+    <section id="page-integrasi" class="page">
+      <div class="page-head">
+        <div><h2>Hasil Integrasi Analisis Spasial dan Prediksi</h2><p>Klaster LISA 2025 · Prediksi RF Tahun 2026 · Kategori Prioritas Operasional</p></div>
+      </div>
+
+      <div class="kpi-grid" style="grid-template-columns: repeat(4, 1fr);" id="integrasiKPI">
+        <div class="kpi-card red"><span>Prioritas I – Sangat Tinggi</span><strong id="iKpi1">-</strong><small>Hotspot HH + Prediksi Tinggi</small><i class="fa-solid fa-circle-exclamation"></i></div>
+        <div class="kpi-card" style="--c:#f97316"><span>Prioritas II – Tinggi</span><strong id="iKpi2">-</strong><small>HH/HL + Prediksi Sedang</small><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <div class="kpi-card" style="--c:#f59e0b"><span>Prioritas III – Sedang</span><strong id="iKpi3">-</strong><small>LH + Prediksi Sedang</small><i class="fa-solid fa-circle-dot"></i></div>
+        <div class="kpi-card" style="--c:#10b981"><span>Prioritas IV – Rendah</span><strong id="iKpi4">-</strong><small>LL/NS + Prediksi Rendah</small><i class="fa-solid fa-circle-check"></i></div>
+      </div>
+
+      <!-- Peta Prioritas Operasional -->
+      <div class="panel mb-4">
+        <h3><i class="fa-solid fa-map"></i> Peta Prioritas Operasional Kecamatan – Prediksi 2026</h3>
+        <small>Warna wilayah sesuai kategori prioritas berdasarkan integrasi LISA + prediksi Random Forest</small>
+        <div id="integrasiMap" style="height:480px;border-radius:10px;margin-top:12px;z-index:0"></div>
+        <div id="integrasiMapLegend" class="legend" style="margin-top:10px"></div>
+      </div>
+
+      <div class="grid-2 mb-4">
+        <div class="panel">
+          <h3><i class="fa-solid fa-chart-column"></i> Skor Integrasi per Kecamatan</h3>
+          <small>Berdasarkan skor integrasi LISA + prediksi RF 2026</small>
+          <div class="chart-box"><canvas id="integrasiBarChart"></canvas></div>
+        </div>
+        <div class="panel">
+          <h3><i class="fa-solid fa-chart-pie"></i> Komposisi Prioritas Operasional</h3>
+          <small>Proporsi kecamatan tiap kategori prioritas</small>
+          <div class="chart-box"><canvas id="integrasiDonutChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Tabel Prioritas Operasional -->
+      <div class="panel mb-4">
+        <h3><i class="fa-solid fa-table-list"></i> Tabel Prioritas Operasional per Kecamatan</h3>
+        <small>Skor = bobot LISA (50%) + skor kasus aktual 2025 (30%) + skor prediksi RF 2026 (20%). Diurutkan dari prioritas tertinggi.</small>
+        <div class="table-wrap">
+          <table class="data-table" id="integrasiTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Kecamatan</th>
+                <th>Kasus 2025</th>
+                <th>Klaster LISA</th>
+                <th>Prediksi 2026 (total)</th>
+                <th>Skor Integrasi</th>
+                <th>Kategori Prioritas</th>
+                <th>Rekomendasi Tindakan</th>
+              </tr>
+            </thead>
+            <tbody id="integrasiTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tabel Prediksi Bulanan 2026 -->
+      <div class="panel mb-4">
+        <h3><i class="fa-solid fa-calendar-days"></i> Prediksi Kasus Bulanan Tahun 2026 per Kecamatan</h3>
+        <small>Prediksi multi-step menggunakan model Random Forest Regression berbasis lag feature</small>
+        <div class="table-wrap tall">
+          <table class="data-table" id="prediksi2026Table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Kecamatan</th>
+                <th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th><th>Mei</th><th>Jun</th>
+                <th>Jul</th><th>Agu</th><th>Sep</th><th>Okt</th><th>Nov</th><th>Des</th>
+                <th>Total 2026</th>
+              </tr>
+            </thead>
+            <tbody id="prediksi2026Body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Keterangan Prioritas -->
+      <div class="panel mt-4">
+        <h3><i class="fa-solid fa-circle-info"></i> Keterangan Kategori Prioritas Operasional</h3>
+        <div class="grid-2-even" style="gap:12px;margin-top:12px">
+          <div style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);border-radius:10px;padding:14px">
+            <b style="color:#ef4444"><i class="fa-solid fa-circle-exclamation"></i> Prioritas I – Sangat Tinggi</b>
+            <p style="margin:6px 0 0;font-size:13px;color:#94a3b8">Kecamatan dengan klaster HH (hotspot) dan jumlah kasus aktual/prediksi di atas rata-rata. Memerlukan intervensi imunisasi dan surveilans segera.</p>
+          </div>
+          <div style="background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.4);border-radius:10px;padding:14px">
+            <b style="color:#f97316"><i class="fa-solid fa-triangle-exclamation"></i> Prioritas II – Tinggi</b>
+            <p style="margin:6px 0 0;font-size:13px;color:#94a3b8">Kecamatan dengan klaster HH atau HL dan kasus sedang, atau prediksi RF tinggi. Perlu pemantauan intensif dan kesiapan respon cepat.</p>
+          </div>
+          <div style="background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.4);border-radius:10px;padding:14px">
+            <b style="color:#f59e0b"><i class="fa-solid fa-circle-dot"></i> Prioritas III – Sedang</b>
+            <p style="margin:6px 0 0;font-size:13px;color:#94a3b8">Kecamatan dengan klaster LH (potensi penyebaran dari wilayah tetangga) atau kasus sedang. Direkomendasikan peningkatan cakupan imunisasi.</p>
+          </div>
+          <div style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.4);border-radius:10px;padding:14px">
+            <b style="color:#10b981"><i class="fa-solid fa-circle-check"></i> Prioritas IV – Rendah</b>
+            <p style="margin:6px 0 0;font-size:13px;color:#94a3b8">Kecamatan dengan klaster LL (coldspot) atau NS dan kasus rendah. Pertahankan cakupan imunisasi rutin dan pemantauan berkala.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="page-laporan" class="page">
+      <div class="page-head"><div><h2>Laporan Integrasi Spasial–Temporal</h2><p>Ringkasan hasil analisis dan rekomendasi kebijakan</p></div></div>
+      <div id="reportCards" class="report-list"></div>
+    </section>
+
+    <section id="page-upload" class="page">
+      <div class="page-head"><div><h2>Upload Dataset Excel</h2><p>Upload data detail kasus 2025 atau rekap 2022–2024 untuk memperbarui seluruh dashboard.</p></div></div>
+      <div class="panel upload-panel"><h3><i class="fa-solid fa-file-excel"></i> Dataset Skripsi Campak</h3><p class="upload-desc">Fitur ini tetap dipertahankan agar dashboard relevan untuk demonstrasi skripsi. Setelah file Excel diupload, menu Overview, Web GIS, Analisis Spasial, Time Series, Random Forest, Evaluasi, dan Laporan akan mengambil data terbaru dari backend Flask.</p><form id="uploadForm" class="upload-form"><input type="file" name="file" accept=".xlsx,.xls" required><button type="submit" class="primary-btn"><i class="fa-solid fa-upload"></i> Upload & Refresh Dashboard</button></form><p id="uploadMsg" class="upload-msg"></p><div class="info mt-4"><i class="fa-solid fa-circle-info"></i> Format disarankan: sheet 2025 untuk data detail kasus, serta sheet 2022, 2023, dan 2024 untuk data rekap kecamatan.</div></div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
