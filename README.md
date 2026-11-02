@@ -50,3 +50,9 @@ campak_sumenep_local/
 - `/api/spatial?year=2025`
 - `/api/forecast?steps=6`
 - `/api/upload` POST file Excel/CSV
+
+# Analysis-Geospasial
+
+Skripsi_ANALISIS POLA PENYEBARAN PENYAKIT CAMPAK DI KABUPATEN SUMENEP DENGAN ALGORITMA RANDOM FOREST BERBASIS GEOSPASIAL
+
+> > > > > > > 841fa6174dec9ad6e27d67d9cacd008bf993d196
